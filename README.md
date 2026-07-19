@@ -35,12 +35,14 @@ No missing values across any column.
 | `Years` (tenure) | Churned accounts are *longer*-tenured | Strong (t=6.58, p<0.0001) | Counterintuitive — longer relationships don't predict safety |
 | `Account_Manager` | Managed accounts churn slightly more | Weak/borderline (χ²=4.12, p=0.0425) | See note below on random assignment |
 | `Total_Purchase` (ad volume) | No meaningful difference | Not significant | Spend level alone doesn't predict churn |
+| `Age` | Churned accounts are slightly *older* | Weak-to-modest (t=2.58, p=0.0099) | Significant but minor — ~1.4 year average difference |
 
 **Note on `Account_Manager`:** per the source problem statement, managers are currently assigned *randomly*, not based on any existing risk assessment. This means the weak positive correlation between having a manager and churning isn't a reverse-causation artifact (i.e. "risky accounts already get flagged") — it's a genuine, if modest, signal from a natural random-assignment setup.
 
 **Correlation check:** `Years` and `Num_Sites` are essentially uncorrelated with each other (r=0.05) — these are two independent risk signals, not two measurements of the same underlying "account size" factor.
 
-**Interpretation:** churn risk is concentrated in large, established accounts — measured by number of websites deployed and tenure — rather than new or small ones. This is consistent with vendor reviews, renegotiation leverage, or competitive displacement at renewal for bigger, more valuable accounts, rather than poor onboarding of small ones. This is a hypothesis suggested by the pattern, not a proven causal mechanism.
+**Interpretation:** Predictior Ranking - `Num_Sites` > `Years` > `Age` > `Account_Manager` > `Total_Purchase` (not significant). Churn risk is concentrated in large, established accounts — with a minor additional signal from contact age — rather than new or small ones. — measured by number of websites deployed and tenure — rather than new or small ones. This is consistent with vendor reviews, renegotiation leverage, or competitive displacement at renewal for bigger, more valuable accounts, rather than poor onboarding of small ones. This is a hypothesis suggested by the pattern, not a proven causal mechanism.
+
 
 ## Approach
 1. Exploratory data analysis (complete) — distribution checks, statistical testing, correlation analysis
