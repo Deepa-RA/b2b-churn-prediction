@@ -59,3 +59,10 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
+
+## Feature Engineering
+
+- Dropped high-cardinality identifier columns (`Names`, `Company`, raw `Location`) — near-unique per row, unusable for generalisation
+- Derived `Region` from `Location` by extracting state, then grouping ~50 sparse state categories into 4 mainland regions (Northeast, Midwest, South, West) plus a `Territories` bucket (PR, Guam, US Virgin Islands, etc.) — done to avoid overfitting on states with as few as 7-20 accounts each
+- Extracted `Onboard_year` and `Onboard_month` from `Onboard_date`
+- Resulting model-ready dataset: 9 columns, 900 rows, no missing values
