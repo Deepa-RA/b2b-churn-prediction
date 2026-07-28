@@ -66,3 +66,39 @@ pip install -r requirements.txt
 - Derived `Region` from `Location` by extracting state, then grouping ~50 sparse state categories into 4 mainland regions (Northeast, Midwest, South, West) plus a `Territories` bucket (PR, Guam, US Virgin Islands, etc.) — done to avoid overfitting on states with as few as 7-20 accounts each
 - Extracted `Onboard_year` and `Onboard_month` from `Onboard_date`
 - Resulting model-ready dataset: 9 columns, 900 rows, no missing values
+
+## Modeling
+
+**Model: Logistic Regression** — chosen as an interpretable baseline, since coefficients can be directly explained to business stakeholders and any more complex model would need to justify its added complexity against this benchmark.
+
+**Preprocessing:** features scaled with `StandardScaler` (fit on training data only, applied to test data — avoiding data leakage from test into training). `Region` one-hot encoded; identifier columns (`Names`, `Company`, `Location`) dropped; `Onboard_date` decomposed into year/month.
+
+**Train/test split:** 80/20, stratified by `Churn` to preserve the ~17% churn rate in both sets.
+
+### Baseline results (default 0.5 threshold, unweighted)
+- Recall (churn): 0.50 — missed half of actual churners
+- Precision (churn): 0.79
+- Accuracy: 0.89 (misleading in isolation, given the 83/17 class split)
+
+### Addressing class imbalance: class weighting
+Applying `class_weight='balanced'` shifted the trade-off substantially:
+- Recall (churn): 0.50 → **0.77**
+- Precision (churn): 0.79 → 0.50
+- Missed churners: 15 → 7 (out of 30)
+
+This trade-off is appropriate given the business context: missing an at-risk account (false negative) is costlier than flagging a safe account for review (false positive), since the whole point is replacing random account manager assignment with risk-based prioritization.
+
+### Threshold tuning
+Testing decision thresholds from 0.3–0.7 on the weighted model's predicted probabilities:
+
+| Threshold | Precision | Recall |
+|---|---|---|
+| 0.3 | 0.39 | 0.93 |
+| 0.4 | 0.44 | 0.93 |
+| 0.5 | 0.50 | 0.77 |
+| 0.6 | 0.56 | 0.73 |
+| 0.7 | 0.66 | 0.70 |
+
+**Recommended threshold: 0.4** — catches 93% of actual churners (28/30) at 44% precision. Chosen over the default 0.5 because the business's current process (random account manager assignment) has zero risk signal at all — redirecting that same existing account manager capacity toward a 44%-precision flagged list represents a clear improvement, even accounting for false alarms. This assumes account managers have some spare capacity to absorb additional flagged reviews; if capacity is highly constrained, a higher threshold (e.g. 0.6) would be a more conservative choice, trading some recall for fewer wasted reviews.
+
+Note: 0.3 was tested but dominated by 0.4 (identical recall, worse precision) — excluded from consideration.
