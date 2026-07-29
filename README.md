@@ -1,7 +1,7 @@
 # B2B Account Churn & Renewal Risk Prediction
 
 ## Overview
-Predicting which client accounts are at risk of churning, using account-level usage, tenure, and relationship signals — framed around the kind of renewal-risk analysis a customer success or account management team would use to prioritise intervention.
+Predicting which client accounts are at risk of churning, using account-level usage, tenure, and relationship signals — framed around the kind of renewal-risk analysis a customer success or account management team would use to prioritize intervention.
 
 ## Business Context
 A marketing agency producing ads for client websites has noticed significant customer churn. Account managers are currently assigned **randomly** rather than based on risk — the business goal is to replace this with a model that flags at-risk accounts so managers can be allocated where they matter most. This is a scarce-resource-allocation problem, not just a prediction exercise.
@@ -33,22 +33,94 @@ No missing values across any column.
 |---|---|---|---|
 | `Num_Sites` (websites using the service) | Churned accounts show *higher* usage | Strong (t=18.50, p<0.0001) | Counterintuitive — more embedded accounts churn more, not less |
 | `Years` (tenure) | Churned accounts are *longer*-tenured | Strong (t=6.58, p<0.0001) | Counterintuitive — longer relationships don't predict safety |
+| `Age` | Churned accounts are slightly *older* | Weak-to-modest (t=2.58, p=0.0099) | Significant but minor — ~1.4 year average difference |
 | `Account_Manager` | Managed accounts churn slightly more | Weak/borderline (χ²=4.12, p=0.0425) | See note below on random assignment |
 | `Total_Purchase` (ad volume) | No meaningful difference | Not significant | Spend level alone doesn't predict churn |
-| `Age` | Churned accounts are slightly *older* | Weak-to-modest (t=2.58, p=0.0099) | Significant but minor — ~1.4 year average difference |
 
 **Note on `Account_Manager`:** per the source problem statement, managers are currently assigned *randomly*, not based on any existing risk assessment. This means the weak positive correlation between having a manager and churning isn't a reverse-causation artifact (i.e. "risky accounts already get flagged") — it's a genuine, if modest, signal from a natural random-assignment setup.
 
 **Correlation check:** `Years` and `Num_Sites` are essentially uncorrelated with each other (r=0.05) — these are two independent risk signals, not two measurements of the same underlying "account size" factor.
 
-**Interpretation:** Predictior Ranking - `Num_Sites` > `Years` > `Age` > `Account_Manager` > `Total_Purchase` (not significant). Churn risk is concentrated in large, established accounts — with a minor additional signal from contact age — rather than new or small ones. — measured by number of websites deployed and tenure — rather than new or small ones. This is consistent with vendor reviews, renegotiation leverage, or competitive displacement at renewal for bigger, more valuable accounts, rather than poor onboarding of small ones. This is a hypothesis suggested by the pattern, not a proven causal mechanism.
+**Updated predictor ranking (strongest to weakest):** `Num_Sites` > `Years` > `Age` > `Account_Manager` > `Total_Purchase` (not significant). Churn risk is concentrated in large, established accounts — with a minor additional signal from contact age — rather than new or small ones. This is a hypothesis suggested by the pattern (consistent with vendor reviews, renegotiation leverage, or competitive displacement at renewal for bigger accounts), not a proven causal mechanism.
 
+## Feature Engineering
+- Dropped `Names`, `Company` — near-unique identifiers, no learnable pattern for a model
+- Extracted `Onboard_year` / `Onboard_month` from `Onboard_date`, then dropped the raw date column
+- Extracted `State` from `Location` via regex; found individual states too sparse (many with <20 accounts) to use reliably, so grouped into 4 mainland regions plus a `Territories` bucket (covering Puerto Rico, Guam, Marshall Islands, etc.), then dropped both `State` and `Location`
+- One-hot encoded `Region` (`drop_first=True`, avoiding redundant/multicollinear columns)
+- **Investigated but rejected:** a `Purchase_per_Site` ratio and a binned `Num_Sites` interaction check (see Feature Importance section below) — both dropped after testing showed they didn't add genuine independent signal
+
+## Modeling
+
+**Approach:** Logistic regression as an interpretable baseline, compared against a random forest. Features scaled with `StandardScaler` for logistic regression (fit on training data only, applied to test data, to avoid data leakage); random forest used unscaled features, since tree-based splits are scale-invariant. 80/20 train/test split, stratified to preserve the ~17% churn ratio in both sets.
+
+**Baseline logistic regression (unweighted):**
+
+| Metric (Churn class) | Value |
+|---|---|
+| Precision | 0.79 |
+| Recall | 0.50 |
+| Missed churners (False Negatives) | 15 of 30 |
+
+The baseline missed half of all actual churners — a direct consequence of the class imbalance found in EDA, since the model defaults to favoring the majority (non-churn) class.
+
+**Class-weighted logistic regression:** applying `class_weight='balanced'` reweights training penalties inversely to class frequency, penalizing missed churners more heavily.
+
+| Metric (Churn class) | Baseline | Weighted |
+|---|---|---|
+| Precision | 0.79 | 0.50 |
+| Recall | 0.50 | 0.77 |
+| Missed churners | 15 | 7 |
+| False alarms | 4 | 23 |
+
+Recall improved substantially at the cost of precision — an expected trade-off given the business context: missing an at-risk account is costlier than flagging a safe one for review.
+
+**Random forest (class-weighted):** trained as a second model to test whether a more complex, non-linear approach improves on logistic regression.
+
+| Metric (Churn class) | Logistic (weighted) | Random Forest (weighted) |
+|---|---|---|
+| Precision | 0.50 | 0.66 |
+| Recall | 0.77 | 0.63 |
+| Missed churners | 7 | 11 |
+| False alarms | 23 | 10 |
+
+Random forest lands at a different point on the precision/recall trade-off rather than being a strict improvement — better precision, lower recall. Added model complexity did not automatically produce a better outcome; it produced a different trade-off.
+
+**Threshold tuning:** rather than accepting the default 0.5 cutoff, tested precision/recall across several thresholds for both models.
+
+| Threshold | Logistic (weighted) P / R | Random Forest P / R |
+|---|---|---|
+| 0.3 | 0.39 / 0.93 | 0.51 / 0.80 |
+| 0.4 | 0.44 / 0.93 | 0.57 / 0.70 |
+| 0.5 | 0.50 / 0.77 | 0.67 / 0.67 |
+| 0.6 | 0.56 / 0.73 | 0.78 / 0.60 |
+| 0.7 | 0.66 / 0.70 | 0.80 / 0.40 |
+
+**Reading the trade-off:** logistic regression can reach recall as high as 0.93 (catching nearly all churners), a ceiling random forest doesn't reach in this range (its best recall here is 0.80). Random forest offers a more balanced trade-off at moderate thresholds (e.g. 0.67 precision / 0.67 recall at 0.5), better than logistic regression's options at similar recall levels.
+
+**Which model/threshold to recommend depends on account manager capacity, a business assumption rather than something the data confirms:**
+- If maximum recall is the priority (catch nearly everyone, tolerate many false alarms) → logistic regression at threshold 0.3–0.4
+- If a more balanced trade-off is preferred (catch a solid majority, keep false alarms more contained) → random forest at threshold 0.4–0.5
+
+Given that account managers are currently assigned with **zero risk signal at all** (random assignment), either option is very likely an improvement over the status quo — the choice between them is about how aggressively to reallocate manager time, not whether to.
+
+### Feature Importance & Investigating a Discrepancy
+
+Random forest feature importance broadly confirmed the EDA findings — `Num_Sites` and `Years` ranked highest in both approaches, in the same order. This is a useful cross-check: two independent methods (single-variable statistical testing vs. a model learning from all features jointly) converged on the same top drivers.
+
+One discrepancy was investigated rather than dismissed: `Total_Purchase` ranked 3rd in random forest importance (0.11) despite showing **no statistically significant relationship with churn** in EDA (t-test, p>0.05). Two possible explanations were tested:
+
+1. **A `Total_Purchase`/`Num_Sites` interaction (purchase-per-site)** — tested via a derived ratio feature. Result: strongly "significant" (t=-8.26, p<0.0001), but investigation showed this was mechanically confounded — since `Total_Purchase` is roughly flat between groups while `Num_Sites` is meaningfully higher for churned accounts, the ratio is largely restating `Num_Sites` in a different form, not adding independent signal. Feature dropped after confirming this.
+
+2. **A conditional interaction, tested via binning `Num_Sites` into low/high tiers** and re-testing `Total_Purchase` within each tier separately. Result: not significant in either tier (Low_Sites: p=0.56; High_Sites: p=0.41) — no evidence of a genuine interaction effect.
+
+**Conclusion:** neither explanation held up under direct testing. The most likely remaining explanation is that random forest importance can reflect scattered, non-generalizable patterns picked up across many individual tree splits, without there being one clean, statistically describable relationship behind it — a known limitation of tree-based feature importance. `Total_Purchase` is treated as a weak/unreliable predictor going forward, consistent with the original EDA finding, not the random forest ranking.
 
 ## Approach
-1. Exploratory data analysis (complete) — distribution checks, statistical testing, correlation analysis
-2. Feature engineering — TBD
-3. Modeling — TBD, with attention to class imbalance given the 83/17 split
-4. Evaluation — TBD, likely prioritizing recall on the churn class over raw accuracy
+1. Exploratory data analysis (complete)
+2. Feature engineering (complete) — dropped identifiers, extracted date and region features, one-hot encoded region, investigated and rejected two derived interaction features
+3. Modeling (complete) — logistic regression baseline, class weighting, random forest comparison, threshold tuning across both models, feature importance cross-check
+4. Next steps — TBD
 
 ## Tech Stack
 Python 3.12, pandas, numpy, scikit-learn, matplotlib, seaborn, scipy
@@ -59,46 +131,3 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
-
-## Feature Engineering
-
-- Dropped high-cardinality identifier columns (`Names`, `Company`, raw `Location`) — near-unique per row, unusable for generalisation
-- Derived `Region` from `Location` by extracting state, then grouping ~50 sparse state categories into 4 mainland regions (Northeast, Midwest, South, West) plus a `Territories` bucket (PR, Guam, US Virgin Islands, etc.) — done to avoid overfitting on states with as few as 7-20 accounts each
-- Extracted `Onboard_year` and `Onboard_month` from `Onboard_date`
-- Resulting model-ready dataset: 9 columns, 900 rows, no missing values
-
-## Modeling
-
-**Model: Logistic Regression** — chosen as an interpretable baseline, since coefficients can be directly explained to business stakeholders and any more complex model would need to justify its added complexity against this benchmark.
-
-**Preprocessing:** features scaled with `StandardScaler` (fit on training data only, applied to test data — avoiding data leakage from test into training). `Region` one-hot encoded; identifier columns (`Names`, `Company`, `Location`) dropped; `Onboard_date` decomposed into year/month.
-
-**Train/test split:** 80/20, stratified by `Churn` to preserve the ~17% churn rate in both sets.
-
-### Baseline results (default 0.5 threshold, unweighted)
-- Recall (churn): 0.50 — missed half of actual churners
-- Precision (churn): 0.79
-- Accuracy: 0.89 (misleading in isolation, given the 83/17 class split)
-
-### Addressing class imbalance: class weighting
-Applying `class_weight='balanced'` shifted the trade-off substantially:
-- Recall (churn): 0.50 → **0.77**
-- Precision (churn): 0.79 → 0.50
-- Missed churners: 15 → 7 (out of 30)
-
-This trade-off is appropriate given the business context: missing an at-risk account (false negative) is costlier than flagging a safe account for review (false positive), since the whole point is replacing random account manager assignment with risk-based prioritization.
-
-### Threshold tuning
-Testing decision thresholds from 0.3–0.7 on the weighted model's predicted probabilities:
-
-| Threshold | Precision | Recall |
-|---|---|---|
-| 0.3 | 0.39 | 0.93 |
-| 0.4 | 0.44 | 0.93 |
-| 0.5 | 0.50 | 0.77 |
-| 0.6 | 0.56 | 0.73 |
-| 0.7 | 0.66 | 0.70 |
-
-**Recommended threshold: 0.4** — catches 93% of actual churners (28/30) at 44% precision. Chosen over the default 0.5 because the business's current process (random account manager assignment) has zero risk signal at all — redirecting that same existing account manager capacity toward a 44%-precision flagged list represents a clear improvement, even accounting for false alarms. This assumes account managers have some spare capacity to absorb additional flagged reviews; if capacity is highly constrained, a higher threshold (e.g. 0.6) would be a more conservative choice, trading some recall for fewer wasted reviews.
-
-Note: 0.3 was tested but dominated by 0.4 (identical recall, worse precision) — excluded from consideration.
