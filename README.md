@@ -117,10 +117,9 @@ One discrepancy was investigated rather than dismissed: `Total_Purchase` ranked 
 **Conclusion:** neither explanation held up under direct testing. The most likely remaining explanation is that random forest importance can reflect scattered, non-generalizable patterns picked up across many individual tree splits, without there being one clean, statistically describable relationship behind it — a known limitation of tree-based feature importance. `Total_Purchase` is treated as a weak/unreliable predictor going forward, consistent with the original EDA finding, not the random forest ranking.
 
 ## Approach
-1. Exploratory data analysis (complete)
-2. Feature engineering (complete) — dropped identifiers, extracted date and region features, one-hot encoded region, investigated and rejected two derived interaction features
-3. Modeling (complete) — logistic regression baseline, class weighting, random forest comparison, threshold tuning across both models, feature importance cross-check
-4. Next steps — TBD
+1. `notebooks/01_eda.ipynb` — exploratory data analysis: distribution checks, statistical testing, correlation analysis, feature importance discrepancy investigation
+2. `notebooks/02_feature_engineering.ipynb` — dropping identifiers, date/region feature extraction, one-hot encoding
+3. `notebooks/03_modeling.ipynb` — train/test split, logistic regression, random forest, threshold tuning, feature importance, final model export
 
 ## Tech Stack
 Python 3.12, pandas, numpy, scikit-learn, matplotlib, seaborn, scipy

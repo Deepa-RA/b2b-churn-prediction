@@ -1,5 +1,5 @@
 {
   "threshold": 0.4,
   "model": "RandomForestClassifier",
-  "classweight": "balanced"
+  "class_weight": "balanced"
 }
