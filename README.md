@@ -130,3 +130,25 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
+
+## Key Findings & Recommendation
+
+**The core finding is counterintuitive and worth leading with:** churn risk is concentrated in the agency's *largest, most established* accounts — high website usage (`Num_Sites`) and long tenure (`Years`) are the strongest predictors, both in the opposite direction of the common assumption that big, embedded accounts are "safe." This points toward vendor reviews, renegotiation leverage, or competitive displacement at renewal for high-value accounts, rather than an onboarding or new-customer retention problem.
+
+**Recommended model: Random Forest, threshold 0.4**
+
+| Metric | Value |
+|---|---|
+| Precision (Churn) | 0.57 |
+| Recall (Churn) | 0.70 |
+| Catches | 21 of 30 actual churners in the test set |
+| False alarms | 16 accounts flagged that were actually safe |
+
+**Why this specific model and threshold, over the alternatives tested:** logistic regression could reach higher recall (up to 0.93) but only at substantially lower precision (as low as 0.39-0.44) — meaning more than half of every flagged account would be a false alarm. The random forest at 0.4 offers a more efficient use of account manager time: catching 70% of actual churners while keeping false alarms more contained. Since account managers are currently assigned with **zero risk signal at all** (random assignment, per the source problem statement), this model represents a clear improvement over the status quo regardless of which threshold ultimately gets adopted in practice — the choice between thresholds is about how aggressively to reallocate manager time, not whether to.
+
+**Caveats, stated honestly rather than glossed over:**
+- This is a single, relatively small dataset (900 accounts, 150 churned) — results should be treated as a strong proof of concept, not a production-ready guarantee, without validation on more data
+- The `Account_Manager` finding is weak and borderline (p=0.0425) — real, but not something to build a strong causal claim around without further testing (a dedicated causal inference follow-up project is planned to examine this properly)
+- Correlation and predictive value were both extensively tested, but this remains a predictive model, not a causal one — it identifies accounts *at risk*, not necessarily *why*, beyond what the exploratory analysis suggests as a plausible business story
+
+**If deployed:** the model would flag roughly 37 of 180 accounts (in the test set) as at-risk, versus the current process of assigning managers with no risk signal at all — a meaningfully more targeted starting point for account management prioritization.
